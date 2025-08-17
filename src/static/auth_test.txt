@@ -1,0 +1,3 @@
+# 用於 HTTP Basic Auth 測試
+# teacher1 teachpass1
+# student1 studpass1
