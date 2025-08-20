@@ -3,40 +3,86 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+  const loginBtn = document.getElementById("login-btn");
+  const logoutBtn = document.getElementById("logout-btn");
+  const currentUserSpan = document.getElementById("current-user");
+  const loginModal = document.getElementById("login-modal");
+  const loginForm = document.getElementById("login-form");
+  const cancelLoginBtn = document.getElementById("cancel-login");
+
+  // 簡單 localStorage 模擬登入狀態
+  function getAuth() {
+    const user = localStorage.getItem("username");
+    const pass = localStorage.getItem("password");
+    return user && pass ? { user, pass } : null;
+  }
+  function setAuth(user, pass) {
+    localStorage.setItem("username", user);
+    localStorage.setItem("password", pass);
+  }
+  function clearAuth() {
+    localStorage.removeItem("username");
+    localStorage.removeItem("password");
+  }
+
+  function updateAuthUI() {
+    const auth = getAuth();
+    if (auth) {
+      currentUserSpan.textContent = `User: ${auth.user}`;
+      loginBtn.classList.add("hidden");
+      logoutBtn.classList.remove("hidden");
+    } else {
+      currentUserSpan.textContent = "未登入";
+      loginBtn.classList.remove("hidden");
+      logoutBtn.classList.add("hidden");
+    }
+  }
+
+  // API fetch with basic auth
+  async function apiFetch(url, options = {}) {
+    const auth = getAuth();
+    if (auth) {
+      options.headers = options.headers || {};
+      options.headers["Authorization"] =
+        "Basic " + btoa(`${auth.user}:${auth.pass}`);
+    }
+    return fetch(url, options);
+  }
 
   // Function to fetch activities from API
   async function fetchActivities() {
     try {
-      const response = await fetch("/activities");
+      const response = await apiFetch("/activities");
       const activities = await response.json();
-
-      // Clear loading message
       activitiesList.innerHTML = "";
-
-      // Populate activities list
+      activitySelect.innerHTML = '<option value="">-- Select an activity --</option>';
+      const auth = getAuth();
       Object.entries(activities).forEach(([name, details]) => {
         const activityCard = document.createElement("div");
         activityCard.className = "activity-card";
-
-        const spotsLeft =
-          details.max_participants - details.participants.length;
-
-        // Create participants HTML with delete icons instead of bullet points
-        const participantsHTML =
-          details.participants.length > 0
-            ? `<div class="participants-section">
+        const spotsLeft = details.max_participants - details.participants.length;
+        let participantsHTML = "";
+        if (details.participants.length > 0) {
+          participantsHTML = `<div class="participants-section">
               <h5>Participants:</h5>
               <ul class="participants-list">
                 ${details.participants
-                  .map(
-                    (email) =>
-                      `<li><span class="participant-email">${email}</span><button class="delete-btn" data-activity="${name}" data-email="${email}">❌</button></li>`
-                  )
+                  .map((email) => {
+                    // 老師可刪除所有人，學生只能刪除自己
+                    let showDelete = false;
+                    if (auth && auth.user.startsWith("teacher")) showDelete = true;
+                    else if (auth && auth.user.startsWith("student")) {
+                      const myEmail = `${auth.user}@mergington.edu`;
+                      if (email === myEmail) showDelete = true;
+                    }
+                    return `<li><span class="participant-email">${email}</span>${showDelete ? `<button class="delete-btn" data-activity="${name}" data-email="${email}">❌</button>` : ""}</li>`;
+                  })
                   .join("")}
               </ul>
-            </div>`
-            : `<p><em>No participants yet</em></p>`;
-
+            </div>`;
+        } else {
+          participantsHTML = `<p><em>No participants yet</em></p>`;
+        }
         activityCard.innerHTML = `
           <h4>${name}</h4>
           <p>${details.description}</p>
@@ -46,17 +92,13 @@ document.addEventListener("DOMContentLoaded", () => {
             ${participantsHTML}
           </div>
         `;
-
         activitiesList.appendChild(activityCard);
-
         // Add option to select dropdown
         const option = document.createElement("option");
         option.value = name;
         option.textContent = name;
         activitySelect.appendChild(option);
       });
-
-      // Add event listeners to delete buttons
       document.querySelectorAll(".delete-btn").forEach((button) => {
         button.addEventListener("click", handleUnregister);
       });
@@ -72,40 +114,28 @@ document.addEventListener("DOMContentLoaded", () => {
     const button = event.target;
     const activity = button.getAttribute("data-activity");
     const email = button.getAttribute("data-email");
-
+    const auth = getAuth();
+    if (!auth) {
+      showMessage("請先登入！", "error");
+      return;
+    }
+    let url = `/activities/${encodeURIComponent(activity)}/unregister`;
+    let options = { method: "DELETE" };
+    // 老師可移除任何人，學生只能移除自己
+    if (auth.user.startsWith("teacher")) {
+      url += `?target_email=${encodeURIComponent(email)}`;
+    }
     try {
-      const response = await fetch(
-        `/activities/${encodeURIComponent(
-          activity
-        )}/unregister?email=${encodeURIComponent(email)}`,
-        {
-          method: "DELETE",
-        }
-      );
-
+      const response = await apiFetch(url, options);
       const result = await response.json();
-
       if (response.ok) {
-        messageDiv.textContent = result.message;
-        messageDiv.className = "success";
-
-        // Refresh activities list to show updated participants
+        showMessage(result.message, "success");
         fetchActivities();
       } else {
-        messageDiv.textContent = result.detail || "An error occurred";
-        messageDiv.className = "error";
+        showMessage(result.detail || "An error occurred", "error");
       }
-
-      messageDiv.classList.remove("hidden");
-
-      // Hide message after 5 seconds
-      setTimeout(() => {
-        messageDiv.classList.add("hidden");
-      }, 5000);
     } catch (error) {
-      messageDiv.textContent = "Failed to unregister. Please try again.";
-      messageDiv.className = "error";
-      messageDiv.classList.remove("hidden");
+      showMessage("Failed to unregister. Please try again.", "error");
       console.error("Error unregistering:", error);
     }
   }
@@ -113,48 +143,75 @@ document.addEventListener("DOMContentLoaded", () => {
   // Handle form submission
   signupForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-
-    const email = document.getElementById("email").value;
     const activity = document.getElementById("activity").value;
-
+    const auth = getAuth();
+    if (!auth) {
+      showMessage("請先登入！", "error");
+      return;
+    }
     try {
-      const response = await fetch(
-        `/activities/${encodeURIComponent(
-          activity
-        )}/signup?email=${encodeURIComponent(email)}`,
-        {
-          method: "POST",
-        }
-      );
-
+      const response = await apiFetch(`/activities/${encodeURIComponent(activity)}/signup`, {
+        method: "POST",
+      });
       const result = await response.json();
-
       if (response.ok) {
-        messageDiv.textContent = result.message;
-        messageDiv.className = "success";
-        signupForm.reset();
-
-        // Refresh activities list to show updated participants
+        showMessage(result.message, "success");
         fetchActivities();
       } else {
-        messageDiv.textContent = result.detail || "An error occurred";
-        messageDiv.className = "error";
+        showMessage(result.detail || "An error occurred", "error");
       }
-
-      messageDiv.classList.remove("hidden");
-
-      // Hide message after 5 seconds
-      setTimeout(() => {
-        messageDiv.classList.add("hidden");
-      }, 5000);
     } catch (error) {
-      messageDiv.textContent = "Failed to sign up. Please try again.";
-      messageDiv.className = "error";
-      messageDiv.classList.remove("hidden");
+      showMessage("Failed to sign up. Please try again.", "error");
       console.error("Error signing up:", error);
     }
   });
 
-  // Initialize app
+  // 登入/登出 UI
+  loginBtn.addEventListener("click", () => {
+    loginModal.classList.remove("hidden");
+  });
+  cancelLoginBtn.addEventListener("click", () => {
+    loginModal.classList.add("hidden");
+  });
+  loginForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = document.getElementById("login-username").value;
+    const password = document.getElementById("login-password").value;
+    // 嘗試用帳密呼叫 /activities 驗證
+    try {
+      const resp = await fetch("/activities", {
+        headers: {
+          Authorization: "Basic " + btoa(`${username}:${password}`),
+        },
+      });
+      if (resp.ok) {
+        setAuth(username, password);
+        updateAuthUI();
+        loginModal.classList.add("hidden");
+        fetchActivities();
+      } else {
+        showMessage("登入失敗，請檢查帳號密碼", "error");
+      }
+    } catch {
+      showMessage("登入失敗，請稍後再試", "error");
+    }
+  });
+  logoutBtn.addEventListener("click", () => {
+    clearAuth();
+    updateAuthUI();
+    fetchActivities();
+  });
+
+  function showMessage(msg, type) {
+    messageDiv.textContent = msg;
+    messageDiv.className = type;
+    messageDiv.classList.remove("hidden");
+    setTimeout(() => {
+      messageDiv.classList.add("hidden");
+    }, 5000);
+  }
+
+  // 初始化
+  updateAuthUI();
   fetchActivities();
 });

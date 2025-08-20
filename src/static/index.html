@@ -10,6 +10,11 @@
     <header>
       <h1>Mergington High School</h1>
       <h2>Extracurricular Activities</h2>
+      <div id="user-auth">
+        <span id="current-user"></span>
+        <button id="login-btn">Login</button>
+        <button id="logout-btn" class="hidden">Logout</button>
+      </div>
     </header>
 
     <main>
@@ -25,10 +30,6 @@
         <h3>Sign Up for an Activity</h3>
         <form id="signup-form">
           <div class="form-group">
-            <label for="email">Student Email:</label>
-            <input type="email" id="email" required placeholder="your-email@mergington.edu" />
-          </div>
-          <div class="form-group">
             <label for="activity">Select Activity:</label>
             <select id="activity" required>
               <option value="">-- Select an activity --</option>
@@ -38,6 +39,23 @@
           <button type="submit">Sign Up</button>
         </form>
         <div id="message" class="hidden"></div>
+        <div id="login-modal" class="hidden">
+          <div style="background:#fff;padding:20px;border-radius:8px;max-width:300px;margin:40px auto;box-shadow:0 2px 8px #0002;">
+            <h3>Login</h3>
+            <form id="login-form">
+              <div class="form-group">
+                <label for="login-username">Username:</label>
+                <input type="text" id="login-username" required />
+              </div>
+              <div class="form-group">
+                <label for="login-password">Password:</label>
+                <input type="password" id="login-password" required />
+              </div>
+              <button type="submit">Login</button>
+              <button type="button" id="cancel-login">Cancel</button>
+            </form>
+          </div>
+        </div>
       </section>
     </main>
 
